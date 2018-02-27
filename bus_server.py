@@ -113,6 +113,7 @@ class Bus_Server:
 	self.poll_rate_ = rospy.get_param("~poll_rate", 25)
 	self.port_name_ = port_name = rospy.get_param("~port", "")
 	self.timeout_ = rospy.get_param("~timeout", 0.5)
+	self.deadman_time = rospy.get_param("~deadman_time", 0.5)
 
 	# Probe for standard ports:
 	if port_name == "":
@@ -160,6 +161,11 @@ class Bus_Server:
 
 	# Subscribe to *cmd_vel* topic:
 	self.cmd_vel_enabled_ = True
+	self.request_left = 0
+	self.request_right = 0
+	self.prev_cmd_vel_x = 0
+	self.prev_cmd_vel_theta = 0
+	self.cmd_vel_time = rospy.Time.now()
 	rospy.Subscriber("cmd_vel", Twist, self.cmd_vel_callback)
 
 	# Overall loop rate: should be faster than fastest sensor rate
@@ -266,9 +272,18 @@ class Bus_Server:
 
 	# Only process a Twist message if *cmd_vel_enabled* is set:
 	if cmd_vel_enabled:
+	    self.cmd_vel_time = rospy.Time.now()
+
 	    # Extract the *x* and *theta* from *request*:
 	    x = request.linear.x		# m/s
 	    theta = request.angular.z	# rad/s
+
+	    # Don't keep doing the same caluclations
+	    if x == self.prev_cmd_vel_x and theta == self.prev_cmd_vel_theta:
+		return
+
+	    self.prev_cmd_vel_x = x
+	    self.prev_cmd_vel_theta = theta
 
 	    # Log the cmd_vel message information:
 	    logger.info("CmdVel: x={0}m/s th={1}deg/s".
@@ -287,10 +302,9 @@ class Bus_Server:
 		left =  x - delta
 		right = x + delta
             
-	    # Send a command the causes the motors to spin:
-	    request_left = int(left * ticks_per_meter / pid_rate)
-	    request_right = int(right * ticks_per_meter / pid_rate)
-	    connection.execute("m {0} {1}".format(request_left, request_right))
+	    # Store motor speeds for poll loop to send:
+	    self.request_left = int(left * ticks_per_meter / pid_rate)
+	    self.request_right = int(right * ticks_per_meter / pid_rate)
 
     def poll_loop(self):
 	""" *Bus_Server*: Perform polling for the *Bus_Server* object.
@@ -314,9 +328,27 @@ class Bus_Server:
 	# Compute *delta_poll_time* as the reciprical of *poll_rate*:
 	delta_poll_time = rospy.Duration(1.0 / float(poll_rate))
 
+	# Only send motor speeds if they changed
+	prev_left = 0
+	prev_right = 0
+
 	# Start polling the sensors and base controller
 	robot_base_time = None
 	while not rospy.is_shutdown():
+	    # Deadman timer - send zero speeds if no cmd_vel received
+	    now = now_routine()
+	    if (now - self.cmd_vel_time).to_sec() > self.deadman_time:
+		self.request_left = 0
+		self.request_right = 0
+                self.prev_cmd_vel_x = 0
+                self.prev_cmd_vel_theta = 0
+
+	    # Update speeds if we have new cmd_vel data
+	    if self.request_left != prev_left or self.request_right != prev_right:
+	        connection.execute("m {0} {1}".format(self.request_left, self.request_right))
+		prev_left = self.request_left
+		prev_right = self.request_right
+
 	    # Figure out if it is time to poll the sensor queue:
 	    now = now_routine()
 	    if now >= next_poll_time:
