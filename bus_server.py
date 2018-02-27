@@ -340,8 +340,8 @@ class Bus_Server:
 	    if (now - self.cmd_vel_time).to_sec() > self.deadman_time:
 		self.request_left = 0
 		self.request_right = 0
-                self.prev_cmd_vel_x = 0
-                self.prev_cmd_vel_theta = 0
+		self.prev_cmd_vel_x = 0
+		self.prev_cmd_vel_theta = 0
 
 	    # Update speeds if we have new cmd_vel data
 	    if self.request_left != prev_left or self.request_right != prev_right:
