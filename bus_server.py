@@ -357,7 +357,7 @@ class Bus_Server:
 
 		# Grab the next back of sensor values from the sensor queue:
 		poll_values = connection.execute("q").split()
-		print("Poll: {0}".format(poll_values))
+		#print("Poll: {0}".format(poll_values))
 
 		# The first value in *poll_values* is the number of
 		# microseconds that have elapsed on the robot since
